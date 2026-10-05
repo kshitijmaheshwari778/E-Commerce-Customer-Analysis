@@ -1,0 +1,156 @@
+/*
+========================================================================
+DAX_Measures.txt
+E-Commerce Customer Analytics Dashboard — Power BI Measures
+------------------------------------------------------------------------
+Import ecommerce_features.csv as the main "Orders" table and
+customer_rfm.csv as a "Customer_RFM" table. Relate them on Customer_ID
+(Orders[Customer_ID] -> Customer_RFM[Customer_ID], many-to-one).
+
+Create a dedicated Date table (see bottom of file) and mark it as the
+official Date table for time intelligence functions to work correctly.
+========================================================================
+*/
+
+-- ============================
+-- CORE KPI MEASURES (Page 1)
+-- ============================
+
+Total Revenue =
+SUM ( Orders[Sales] )
+
+Total Profit =
+SUM ( Orders[Profit] )
+
+Total Orders =
+DISTINCTCOUNT ( Orders[Order_ID] )
+
+Total Customers =
+DISTINCTCOUNT ( Orders[Customer_ID] )
+
+Average Order Value =
+DIVIDE ( [Total Revenue], [Total Orders] )
+
+Profit Margin % =
+DIVIDE ( [Total Profit], [Total Revenue] )
+
+Average Basket Size =
+DIVIDE ( SUM ( Orders[Quantity] ), [Total Orders] )
+
+
+-- ============================
+-- TIME INTELLIGENCE
+-- ============================
+
+Revenue (Prior Month) =
+CALCULATE ( [Total Revenue], DATEADD ( 'Date'[Date], -1, MONTH ) )
+
+Revenue MoM Growth % =
+DIVIDE ( [Total Revenue] - [Revenue (Prior Month)], [Revenue (Prior Month)] )
+
+Revenue (Prior Year) =
+CALCULATE ( [Total Revenue], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )
+
+Revenue YoY Growth % =
+DIVIDE ( [Total Revenue] - [Revenue (Prior Year)], [Revenue (Prior Year)] )
+
+Revenue YTD =
+TOTALYTD ( [Total Revenue], 'Date'[Date] )
+
+
+-- ============================
+-- CUSTOMER ANALYTICS (Page 2)
+-- ============================
+
+-- Requires a Customer_Orders table or use SUMMARIZE on the fly:
+Repeat Customers =
+CALCULATE (
+    DISTINCTCOUNT ( Orders[Customer_ID] ),
+    FILTER (
+        VALUES ( Orders[Customer_ID] ),
+        CALCULATE ( DISTINCTCOUNT ( Orders[Order_ID] ) ) > 1
+    )
+)
+
+Repeat Purchase Rate % =
+DIVIDE ( [Repeat Customers], [Total Customers] )
+
+New Customers (This Period) =
+CALCULATE (
+    DISTINCTCOUNT ( Orders[Customer_ID] ),
+    FILTER (
+        VALUES ( Orders[Customer_ID] ),
+        CALCULATE ( MIN ( Orders[Order_Date] ) ) >= MIN ( 'Date'[Date] )
+            && CALCULATE ( MIN ( Orders[Order_Date] ) ) <= MAX ( 'Date'[Date] )
+    )
+)
+
+Returning Customers (This Period) =
+[Total Customers] - [New Customers (This Period)]
+
+Customer Lifetime Value (Avg) =
+AVERAGEX ( VALUES ( Orders[Customer_ID] ), CALCULATE ( [Total Revenue] ) )
+
+-- Customer Retention Rate (period-over-period; pair with a quarter or
+-- month slicer). Requires a disconnected "Period" comparison table in
+-- advanced setups — simplified version below works with a single
+-- continuous Date table:
+Customer Retention Rate % =
+VAR CustomersThisPeriod =
+    CALCULATETABLE ( VALUES ( Orders[Customer_ID] ) )
+VAR CustomersPriorPeriod =
+    CALCULATETABLE (
+        VALUES ( Orders[Customer_ID] ),
+        DATEADD ( 'Date'[Date], -1, MONTH )
+    )
+VAR Retained =
+    COUNTROWS ( INTERSECT ( CustomersThisPeriod, CustomersPriorPeriod ) )
+RETURN
+    DIVIDE ( Retained, COUNTROWS ( CustomersPriorPeriod ) )
+
+
+-- ============================
+-- PRODUCT ANALYTICS (Page 3)
+-- ============================
+
+Units Sold =
+SUM ( Orders[Quantity] )
+
+Revenue Rank (Product) =
+RANKX ( ALL ( Orders[Product_Name] ), [Total Revenue] )
+
+Profit Rank (Category) =
+RANKX ( ALL ( Orders[Product_Category] ), [Total Profit] )
+
+Category Revenue Share % =
+DIVIDE ( [Total Revenue], CALCULATE ( [Total Revenue], ALL ( Orders[Product_Category] ) ) )
+
+
+-- ============================
+-- REGIONAL ANALYTICS (Page 4)
+-- ============================
+
+Region Revenue Share % =
+DIVIDE ( [Total Revenue], CALCULATE ( [Total Revenue], ALL ( Orders[Region] ) ) )
+
+State Profit Rank =
+RANKX ( ALL ( Orders[State] ), [Total Profit] )
+
+
+-- ============================
+-- DATE TABLE (create via "New Table" in Power BI, then mark as Date Table)
+-- ============================
+/*
+Date =
+ADDCOLUMNS (
+    CALENDAR ( DATE(2022,1,1), DATE(2024,12,31) ),
+    "Year", YEAR ( [Date] ),
+    "Month", MONTH ( [Date] ),
+    "MonthName", FORMAT ( [Date], "MMMM" ),
+    "Quarter", "Q" & QUARTER ( [Date] ),
+    "YearMonth", FORMAT ( [Date], "YYYY-MM" )
+)
+
+Mark this table as a Date Table in Power BI:
+Table Tools > Mark as Date Table > select [Date] column.
+*/
